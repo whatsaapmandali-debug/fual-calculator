@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="mr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#007bff">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>पेट्रोल GPS Tracker</title>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Poppins',sans-serif; background:#f0f4f8; min-height:100vh; padding-top: env(safe-area-inset-top); }
+        header { background:#007bff; color:white; text-align:center; padding:20px; font-size:22px; font-weight:600; position:sticky; top:0; z-index:100; }
+        .splash { position:fixed; top:0; left:0; right:0; bottom:0; background:#007bff; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:9999; animation:fadeOut 0.6s forwards 1.8s; }
+        .splash h1 { color:white; margin-top:20px; font-size:28px; font-weight:700; }
+        @keyframes fadeOut { to{opacity:0; visibility:hidden} }
+        .container { width:90%; max-width:400px; margin:20px auto; padding:24px; background:white; border-radius:20px; box-shadow:0 10px 30px rgba(0,0,0,0.1); }
+        label { display:block; margin:16px 0 8px; font-weight:600; color:#007bff; font-size:15px; }
+        input { width:100%; padding:14px; border:2px solid #e0e0e0; border-radius:12px; font-size:16px; }
+        button { width:100%; padding:16px; margin:12px 0; border:none; border-radius:16px; font-size:18px; font-weight:600; color:white; cursor:pointer; }
+        #setup-btn { background:#28a745; }
+        #stop-btn { background:#dc3545; display:none; }
+        #reset-btn { background:#ffc107; color:#212529; }
+        .odometer { font-family:'Courier New',monospace; font-size:42px; text-align:center; background:#1a1a1a; color:#0f0; padding:20px; border-radius:16px; letter-spacing:6px; margin:20px 0; }
+        .status { text-align:center; padding:12px; border-radius:12px; margin:10px 0; font-weight:500; }
+        .running { background:#d4edda; color:#155724; }
+        .stopped { background:#f8d7da; color:#721c24; }
+        #result-box { background:#e8f5e8; padding:20px; border-radius:16px; margin:15px 0; border:2px solid #b8e0c1; }
+        #result-box h2 { margin:10px 0; font-size:17px; color:#155724; font-weight:600; }
+        .hidden { display:none; }
+    </style>
+</head>
+<body>
+    <div class="splash">
+        <h1>पेट्रोल Tracker</h1>
+    </div>
+
+    <header>पेट्रोल GPS Tracker</header>
+
+    <div class="container" id="input-section">
+        <label>पेट्रोलचा भाव (₹/लिटर)</label>
+        <input type="number" id="price" step="0.01" placeholder="105">
+        <label>गाडीत टाकलेले पैसे (₹)</label>
+        <input type="number" id="amount" step="0.01" placeholder="120">
+        <label>गाडी किती किलोमीटर चालली आहे?</label>
+        <input type="number" id="initial_driven" step="0.1" placeholder="0" value="0">
+        <label>मायलेज (किमी/लिटर)</label>
+        <input type="number" id="mileage" step="0.1" placeholder="42">
+        <button id="setup-btn">GPS तात्काळ सुरू करा</button>
+    </div>
+
+    <div class="container hidden" id="running-section">
+        <div class="odometer" id="odometer">00000.0</div>
+        <div class="status stopped" id="status">प्रतीक्षा...</div>
+
+        <div id="result-box">
+            <h2 id="filled-petrol">टाकलेले: ₹0 (0 L)</h2>
+            <h2 id="used-petrol">वापरलेले: ₹0 (0 L)</h2>
+            <h2 id="remaining-petrol"><strong>शिल्लक: ₹0 (0 L)</strong></h2>
+            <h2 id="remaining-km"><strong>अजून: 0 किमी</strong></h2>
+            <h2 id="current-speed">स्पीड: 0 किमी/तास</h2>
+            <h2 id="driven-km">गाडी चाललेले: 0.0 किमी</h2>
+        </div>
+
+        <button id="stop-btn">थांबवा</button>
+        <button id="reset-btn">रीसेट</button>
+    </div>
+
+    <script>
+        let watchId = null, odometer = 0, filledLiters = 0, price = 0, mileage = 0;
+        let lastPosition = null, lastTime = null, isRunning = false;
+
+        function formatPetrol(rupees, liters) {
+            return `₹${rupees.toFixed(2)} (${liters.toFixed(2)} L)`;
+        }
+
+        function updateOdometer() {
+            document.getElementById('odometer').textContent = odometer.toFixed(1).padStart(7, '0');
+        }
+
+        function updateResults(speed = 0) {
+            const usedLiters = odometer / mileage;
+            const remainingLiters = Math.max(0, filledLiters - usedLiters);
+            const remainingRupees = remainingLiters * price;
+            const remainingKm = remainingLiters * mileage;
+
+            document.getElementById('filled-petrol').textContent = `टाकलेले: ${formatPetrol(price * filledLiters, filledLiters)}`;
+            document.getElementById('used-petrol').textContent = `वापरलेले: ${formatPetrol(usedLiters * price, usedLiters)}`;
+            document.getElementById('remaining-petrol').innerHTML = `<strong>शिल्लक: ${formatPetrol(remainingRupees, remainingLiters)}</strong>`;
+            document.getElementById('remaining-km').innerHTML = `<strong>अजून: ${remainingKm.toFixed(1)} किमी</strong>`;
+            document.getElementById('current-speed').textContent = `स्पीड: ${speed.toFixed(1)} किमी/तास`;
+            document.getElementById('driven-km').textContent = `गाडी चाललेले: ${odometer.toFixed(1)} किमी`;
+        }
+
+        function getDistance(p1, p2) {
+            const R = 6371000;
+            const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+            const dLon = (p2.lon - p1.lon) * Math.PI / 180;
+            const a = Math.sin(dLat/2)**2 + Math.cos(p1.lat*Math.PI/180)*Math.cos(p2.lat*Math.PI/180)*Math.sin(dLon/2)**2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) / 1000;
+        }
+
+        function startGPSTracking() {
+            if (isRunning) return;
+            isRunning = true;
+            document.getElementById('status').textContent = 'GPS शोधत आहे...';
+            document.getElementById('status').className = 'status running';
+
+            watchId = navigator.geolocation.watchPosition(
+                pos => {
+                    const now = Date.now();
+                    const { latitude: lat, longitude: lon, speed: gpsSpeed } = pos.coords;
+                    let speed = gpsSpeed ? gpsSpeed * 3.6 : 0;
+
+                    if (lastPosition && lastTime) {
+                        const dist = getDistance(lastPosition, {lat, lon});
+                        const timeDiff = (now - lastTime) / 1000;
+                        if (timeDiff > 0 && !gpsSpeed) {
+                            speed = (dist / timeDiff) * 3.6;
+                        }
+                        odometer += dist;
+                    }
+
+                    lastPosition = {lat, lon};
+                    lastTime = now;
+                    document.getElementById('status').textContent = 'GPS चालू!';
+                    document.getElementById('status').className = 'status running';
+                    updateOdometer();
+                    updateResults(speed);
+                },
+                err => {
+                    let msg = '';
+                    if (err.code === 1) msg = 'परवानगी नाकारली! Chrome मध्ये Allow करा.';
+                    else if (err.code === 2) msg = 'GPS सिग्नल नाही... पुन्हा प्रयत्न...';
+                    else if (err.code === 3) msg = 'टाइमआउट! सिग्नल मिळाल्यास चालू!';
+                    document.getElementById('status').textContent = msg;
+                },
+                { 
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: 15000
+                }
+            );
+        }
+
+        function stopTracking() {
+            if (watchId) navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+            isRunning = false;
+            document.getElementById('status').textContent = 'थांबले';
+            document.getElementById('status').className = 'status stopped';
+        }
+
+        document.getElementById('setup-btn').onclick = () => {
+            price = parseFloat(document.getElementById('price').value) || 0;
+            const amount = parseFloat(document.getElementById('amount').value) || 0;
+            mileage = parseFloat(document.getElementById('mileage').value) || 1;
+            const initialDriven = parseFloat(document.getElementById('initial_driven').value) || 0;
+
+            if (!price || !amount || !mileage) {
+                alert('सर्व भरा!');
+                return;
+            }
+
+            filledLiters = amount / price;
+            odometer = initialDriven;
+            lastPosition = null;
+            lastTime = null;
+
+            document.getElementById('input-section').classList.add('hidden');
+            document.getElementById('running-section').classList.remove('hidden');
+            document.getElementById('stop-btn').style.display = 'block';
+
+            updateOdometer();
+            updateResults();
+            startGPSTracking();
+        };
+
+        document.getElementById('stop-btn').onclick = stopTracking;
+        document.getElementById('reset-btn').onclick = () => {
+            stopTracking();
+            document.getElementById('running-section').classList.add('hidden');
+            document.getElementById('input-section').classList.remove('hidden');
+            document.getElementById('stop-btn').style.display = 'none';
+        };
+
+        setTimeout(() => {
+            document.querySelector('.splash').style.display = 'none';
+        }, 2000);
+    </script>
+</body>
+</html>
